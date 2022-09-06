@@ -12,6 +12,8 @@ import numpy as np
 from utils.general import LOGGER, check_version, colorstr, resample_segments, segment2box
 from utils.metrics import bbox_ioa
 
+from shapely.geometry import Polygon,LineString
+
 
 class Albumentations:
     # YOLOv5 Albumentations class (optional, only used if package is installed)
@@ -22,13 +24,20 @@ class Albumentations:
             check_version(A.__version__, '1.0.3', hard=True)  # version requirement
 
             self.transform = A.Compose([
+                # A.CoarseDropout(max_holes=8, max_height=8, max_width=8, min_holes=None, min_height=None, min_width=None, fill_value=0, always_apply=False, p=0.01),
+                # A.OpticalDistortion(distort_limit=0.05, shift_limit=0.05, interpolation=1, border_mode=4, value=None, mask_value=None, always_apply=False, p=0.01),
+                # A.GridDistortion(num_steps=5, distort_limit=0.3, interpolation=1, border_mode=4, value=None, mask_value=None, always_apply=False, p=0.01),
+                A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), always_apply=False, p=0.01),
                 A.Blur(p=0.01),
+                # A.ImageCompression(quality_lower=55, p=0.01),
                 A.MedianBlur(p=0.01),
                 A.ToGray(p=0.01),
                 A.CLAHE(p=0.01),
-                A.RandomBrightnessContrast(p=0.0),
-                A.RandomGamma(p=0.0),
-                A.ImageCompression(quality_lower=75, p=0.0)],
+                A.RandomBrightnessContrast(p=0.01),
+                A.RandomGamma(p=0.01),
+                A.MotionBlur(blur_limit=7, always_apply=False, p=0.01),
+                A.ChannelShuffle(always_apply=False, p=0.01),
+                A.ImageCompression(quality_lower=75, p=0.01)],  # transforms
                 bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels']))
 
             LOGGER.info(colorstr('albumentations: ') + ', '.join(f'{x}' for x in self.transform.transforms if x.p))
@@ -235,9 +244,11 @@ def random_perspective(im, targets=(), segments=(), degrees=10, translate=.1, sc
 
     # Transform label coordinates
     n = len(targets)
+    dire=[]
     if n:
         use_segments = any(x.any() for x in segments)
         new = np.zeros((n, 4))
+        validi=[]
         if use_segments:  # warp segments
             segments = resample_segments(segments)  # upsample
             for i, segment in enumerate(segments):
@@ -250,26 +261,50 @@ def random_perspective(im, targets=(), segments=(), degrees=10, translate=.1, sc
                 new[i] = segment2box(xy, width, height)
 
         else:  # warp boxes
-            xy = np.ones((n * 4, 3))
-            xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
+            xy = np.ones((n * 2, 3))
+            xy[:, :2] = targets[:, [1, 2, 3, 4]].reshape(n * 2, 2)  # x1y1, x2y2
             xy = xy @ M.T  # transform
-            xy = (xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]).reshape(n, 8)  # perspective rescale or affine
+            xy = (xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]).reshape(n, 4)  # perspective rescale or affine
 
             # create new boxes
-            x = xy[:, [0, 2, 4, 6]]
-            y = xy[:, [1, 3, 5, 7]]
-            new = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
+            imbound=Polygon([(0,0),(0,height-1),(width-1,height-1),(width-1,0)])
+            clipList=[]
+            for i in range(n):
+                line = LineString( [(xy[i, 0],xy[i, 1]),(xy[i, 2],xy[i, 3])])
+
+                if xy[i, 0]==xy[i, 2] and xy[i, 1]==xy[i, 3]:
+                    if  xy[i, 0]>=0 and xy[i, 0]< width and xy[i, 1]>=0 and xy[i, 1]< height and xy[i, 2]>=0 and xy[i, 2]< width and xy[i, 3]>=0 and xy[i, 3]< height :
+                        # xy[i, 0]-=15
+                        # xy[i, 1]-=15
+                        # xy[i, 2]+=15
+                        # xy[i, 3]+=15
+                        result = LineString([(xy[i, 0],xy[i, 1]),(xy[i, 2],xy[i, 3])])
+                    else:
+                        result = []
+                else:
+                    # print(line)
+                    result = imbound.intersection(line)
+                # print(list(result.coords))
+                if result:
+                    clipList.append(list(result.coords))
+                    validi.append(i)
+                else:
+                    clipList.append([(-1,-1),(-1,-1)])
+            newxy = np.array(clipList).reshape(len(clipList),4)      
+            x = newxy[:, [0, 2]]
+            y = newxy[:, [1, 3]]
+            new = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1),x.argmin(1)==y.argmin(1))).reshape(5, len(clipList)).T
 
             # clip
             new[:, [0, 2]] = new[:, [0, 2]].clip(0, width)
             new[:, [1, 3]] = new[:, [1, 3]].clip(0, height)
+            # print(new[:, 4])
+        targets = targets[validi]
+        targets[:, 1:5] = new[validi][:, 0:4]
 
-        # filter candidates
-        i = box_candidates(box1=targets[:, 1:5].T * s, box2=new.T, area_thr=0.01 if use_segments else 0.10)
-        targets = targets[i]
-        targets[:, 1:5] = new[i]
+        dire=new[validi][:, 4]
 
-    return im, targets
+    return im, targets, dire
 
 def random_segmentation_perspective(im, targets, degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0,
                        border=(0, 0)):

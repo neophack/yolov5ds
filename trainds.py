@@ -237,7 +237,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                                                                        prefix=colorstr('train: '), shuffle=True)
 
     # print("cls balance :",cls_balance)
-    mlc = int(np.concatenate(dataset.labels, 0)[:, 0].max())  # max label class
+    mlc = int(np.concatenate(dataset.labelboxes, 0)[:, 0].max())  # max label class
     nb = len(train_loader)  # number of batches
     snb = len(roadseg_train_loader)
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
@@ -255,7 +255,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                                                         prefix=colorstr('val: '))[0]
 
         if not resume:
-            labels = np.concatenate(dataset.labels, 0)
+            labels = np.concatenate(dataset.labelboxes, 0)
             # c = torch.tensor(labels[:, 0])  # classes
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
             # model._initialize_biases(cf.to(device))
@@ -282,7 +282,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     hyp['label_smoothing'] = opt.label_smoothing
     model.nc = nc  # attach number of classes to model
     model.hyp = hyp  # attach hyperparameters to model
-    model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
+    model.class_weights = labels_to_class_weights(dataset.labelboxes, nc).to(device) * nc  # attach class weights
     model.names = names
 
     # Start training
@@ -308,7 +308,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         # Update image weights (optional, single-GPU only)
         if opt.image_weights:
             cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
-            iw = labels_to_image_weights(dataset.labels, nc=nc, class_weights=cw)  # image weights
+            iw = labels_to_image_weights(dataset.labelboxes, nc=nc, class_weights=cw)  # image weights
             dataset.indices = random.choices(range(dataset.n), weights=iw, k=dataset.n)  # rand weighted idx
 
         # Update mosaic border (optional)

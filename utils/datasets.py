@@ -28,7 +28,7 @@ from utils.general import colorstr
 from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective, \
     segletterbox, SegAlbumentations, random_segmentation_perspective
 from utils.general import (LOGGER, check_dataset, check_requirements, check_yaml, clean_str, segments2boxes, xyn2xy,
-                           xywh2xyxy, xywhn2xyxy, xyxy2xywhn)
+                           xywh2xyxy, xywhn2xyxy, xyxy2xywhn, xyxyn2xyxy, xyxy2xywh)
 from utils.torch_utils import torch_distributed_zero_first
 from collections import Counter
 
@@ -424,7 +424,7 @@ class LoadStreams:
 
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
-    sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
+    sa, sb = os.sep + 'images' + os.sep, os.sep + 'linelabels' + os.sep  # /images/, /labels/ substrings
     return [sb.join(x.rsplit(sa, 1)).rsplit('.', 1)[0] + '.txt' for x in img_paths]
 
 
@@ -496,6 +496,11 @@ class LoadImagesAndLabels(Dataset):
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
         labels, shapes, self.segments = zip(*cache.values())
         self.labels = list(labels)
+        self.labelboxes = []
+        for i in range(len(self.labels)):
+            label = np.zeros_like(self.labels[i])
+            label[:, 1:5] = xyxy2xywh(self.labels[i][:, 1:5])
+            self.labelboxes.append(label)
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
@@ -522,10 +527,12 @@ class LoadImagesAndLabels(Dataset):
             if include_class:
                 j = (label[:, 0:1] == include_class_array).any(1)
                 self.labels[i] = label[j]
+                self.labelboxes[i][:, 1:5] = xyxy2xywh(self.labels[i][:, 1:5])
                 if segment:
                     self.segments[i] = segment[j]
             if single_cls:  # single-class training, merge all classes into 0
                 self.labels[i][:, 0] = 0
+                self.labelboxes[i][:, 0] = 0
                 if segment:
                     self.segments[i][:, 0] = 0
 
@@ -538,6 +545,7 @@ class LoadImagesAndLabels(Dataset):
             self.img_files = [self.img_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
             self.labels = [self.labels[i] for i in irect]
+            self.labelboxes[i] = [self.labelboxes[i] for i in irect]
             self.shapes = s[irect]  # wh
             ar = ar[irect]
 
@@ -627,7 +635,7 @@ class LoadImagesAndLabels(Dataset):
         mosaic = self.mosaic and random.random() < hyp['mosaic']
         if mosaic:
             # Load mosaic
-            img, labels = load_mosaic(self, index)
+            img, labels, dire = load_mosaic(self, index)
             # for l in range(len(labels)):
             #     # print(labels)
             #     cv2.putText(img, str(labels[l][0]), (int(labels[l][1]),int(labels[l][2])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255,0), 2)
@@ -651,23 +659,30 @@ class LoadImagesAndLabels(Dataset):
 
             labels = self.labels[index].copy()
             if labels.size:  # normalized xywh to pixel xyxy format
-                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
+                labels[:, 1:] = xyxyn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
             if self.augment:
-                img, labels = random_perspective(img, labels,
+                img, labels, dire = random_perspective(img, labels,
                                                  degrees=hyp['degrees'],
                                                  translate=hyp['translate'],
                                                  scale=hyp['scale'],
                                                  shear=hyp['shear'],
                                                  perspective=hyp['perspective'])
-
+            else:
+                img, labels, dire = random_perspective(img, labels,
+                                                       degrees=0,
+                                                       translate=0,
+                                                       scale=0,
+                                                       shear=0,
+                                                       perspective=0)
         nl = len(labels)  # number of labels
         if nl:
             labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
 
         if self.augment:
             # Albumentations
-            img, labels = self.albumentations(img, labels)
+            # print(labels)
+            img, _ = self.albumentations(img, np.array([[0,0.5,0.5,0.1,0.1],[1,0.6,0.5,0.1,0.1]]))
             nl = len(labels)  # update after albumentations
 
             # HSV color-space
@@ -678,19 +693,31 @@ class LoadImagesAndLabels(Dataset):
                 img = np.flipud(img)
                 if nl:
                     labels[:, 2] = 1 - labels[:, 2]
+                    dire=1-dire
 
             # Flip left-right
             if random.random() < hyp['fliplr']:
                 img = np.fliplr(img)
                 if nl:
                     labels[:, 1] = 1 - labels[:, 1]
-
+                    dire=1-dire
+            # flip 90度
+            if random.random() < hyp['flip90']:
+                img = img.transpose((1, 0, 2))  # HWC to WHC
+                if nl:
+                    tmp = labels[:, 1].copy()
+                    labels[:, 1] = labels[:, 2].copy()
+                    labels[:, 2] = tmp
+                    tmp = labels[:, 3].copy()
+                    labels[:, 3] = labels[:, 4].copy()
+                    labels[:, 4] = tmp
             # Cutouts
             # labels = cutout(img, labels, p=0.5)
 
-        labels_out = torch.zeros((nl, 6))
+        labels_out = torch.zeros((nl, 7))
         if nl:
-            labels_out[:, 1:] = torch.from_numpy(labels)
+            labels_out[:, 1:6] = torch.from_numpy(labels)
+            labels_out[:, 6] = torch.from_numpy(dire)
 
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
@@ -983,7 +1010,7 @@ def load_mosaic(self, index):
         # Labels
         labels, segments = self.labels[index].copy(), self.segments[index].copy()
         if labels.size:
-            labels[:, 1:] = xywhn2xyxy(labels[:, 1:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
+            labels[:, 1:] = xyxyn2xyxy(labels[:, 1:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
             segments = [xyn2xy(x, w, h, padw, padh) for x in segments]
         labels4.append(labels)
         segments4.extend(segments)
@@ -996,7 +1023,7 @@ def load_mosaic(self, index):
 
     # Augment
     img4, labels4, segments4 = copy_paste(img4, labels4, segments4, p=self.hyp['copy_paste'])
-    img4, labels4 = random_perspective(img4, labels4, segments4,
+    img4, labels4, dire = random_perspective(img4, labels4, segments4,
                                        degrees=self.hyp['degrees'],
                                        translate=self.hyp['translate'],
                                        scale=self.hyp['scale'],
@@ -1004,7 +1031,7 @@ def load_mosaic(self, index):
                                        perspective=self.hyp['perspective'],
                                        border=self.mosaic_border)  # border to remove
 
-    return img4, labels4
+    return img4, labels4, dire
 
 
 def load_seg_mosaic(self, index):
@@ -1166,7 +1193,11 @@ def extract_boxes(path='../datasets/coco128'):  # from utils.datasets import *; 
                     if not f.parent.is_dir():
                         f.parent.mkdir(parents=True)
 
-                    b = x[1:] * [w, h, w, h]  # box
+                    xmin = min(x[1], x[3])
+                    ymin = max(x[2], x[4])
+                    xmax = min(x[1], x[3])
+                    ymax = max(x[2], x[4])
+                    b = [(xmin + xmax) / 2., (ymin + ymax) / 2., xmax - xmin, ymax - ymin] * [w, h, w, h]  # box
                     # b[2:] = b[2:].max()  # rectangle to square
                     b[2:] = b[2:] * 1.2 + 3  # pad
                     b = xywh2xyxy(b.reshape(-1, 4)).ravel().astype(np.int)
@@ -1309,14 +1340,14 @@ def dataset_stats(path='coco128.yaml', autodownload=False, verbose=False, profil
             continue
         x = []
         dataset = LoadImagesAndLabels(data[split])  # load dataset
-        for label in tqdm(dataset.labels, total=dataset.n, desc='Statistics'):
+        for label in tqdm(dataset.labelboxes, total=dataset.n, desc='Statistics'):
             x.append(np.bincount(label[:, 0].astype(int), minlength=data['nc']))
         x = np.array(x)  # shape(128x80)
         stats[split] = {'instance_stats': {'total': int(x.sum()), 'per_class': x.sum(0).tolist()},
                         'image_stats': {'total': dataset.n, 'unlabelled': int(np.all(x == 0, 1).sum()),
                                         'per_class': (x > 0).sum(0).tolist()},
                         'labels': [{str(Path(k).name): round_labels(v.tolist())} for k, v in
-                                   zip(dataset.img_files, dataset.labels)]}
+                                   zip(dataset.img_files, dataset.labelboxes)]}
 
         if hub:
             im_dir = hub_dir / 'images'

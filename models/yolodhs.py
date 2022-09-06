@@ -81,7 +81,7 @@ class Detect(nn.Module):
         # self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.m = nn.ModuleList(DecoupledHead(x,nc,1,anchors) for x in ch)
 
-        self.inplace = False #inplace  # use in-place ops (e.g. slice assignment)
+        self.inplace = inplace  # use in-place ops (e.g. slice assignment)
 
     def forward(self, x):
         z = []  # inference output
@@ -101,7 +101,7 @@ class Detect(nn.Module):
                 y = x[i].sigmoid()
                 # print(y.shape,self.grid[i].shape, self.anchor_grid[i].shape)
                 if self.inplace:
-                    y[..., 0:2] = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy
+                    y[..., 0:2] = (y[..., 0:2] * 2  + self.grid[i]) * self.stride[i]  # xy
                     y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
                 else:  # for YOLOv5 on AWS Inferentia https://github.com/ultralytics/yolov5/pull/2953
                     xy, wh, conf = y.split((2, 2, self.nc + 1), 4)  # y.tensor_split((2, 4, 5), 4)  # torch 1.8.0
