@@ -1,2 +1,5 @@
 runs/
 runs/*
+data/custom_*
+*.pyc
+*.pt

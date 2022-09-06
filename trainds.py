@@ -367,6 +367,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             # Forward
             with amp.autocast(enabled=cuda):
                 seg_pred = model(segimgs)  # forward
+                # print(seg_pred[1].shape, segtargets.long().to(device).shape)
                 segloss = SegLoss(seg_pred[1], segtargets.long().to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     segloss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -393,7 +394,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 # print("on_train_batch_end:",imgs.shape, targets.shape)
                 # callbacks.run('on_train_batch_end', ni, model, imgs, targets, paths, plots, opt.sync_bn)
             # end batch ------------------------------------------------------------------------------------------------
-
 
         if RANK in [-1, 0]:
             # mIOU
@@ -501,10 +501,10 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default=ROOT / 'yolov5s.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
+    parser.add_argument('--cfg', type=str, default='', help='yolov5s.yaml path')
     parser.add_argument('--segcfg', type=str, default='models/segheads.yaml', help='segmentation head yaml path')
-    parser.add_argument('--data', type=str, default=ROOT / 'data/voc.yaml', help='dataset.yaml path')
-    parser.add_argument('--hyp', type=str, default=ROOT / 'data/hyps/hyp.scratch.yaml', help='hyperparameters path')
+    parser.add_argument('--data', type=str, default=ROOT / 'data/ps.yaml', help='dataset.yaml path')
+    parser.add_argument('--hyp', type=str, default=ROOT / 'data/hyps/hyp.scratch.ps.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--batch-size', type=int, default=8, help='total batch size for all GPUs, -1 for autobatch')
     parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=512, help='train, val image size (pixels)')

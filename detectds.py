@@ -87,6 +87,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
+        segclsnum=6,
         ):
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -105,13 +106,14 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
     ckpts = torch.load(weights)
     # model = DetectMultiBackend(weights, device=device, dnn=dnn)
     model = ckpts['model']
+
     # model.half()
     stride, names = model.stride[-1].item(), model.names
     # print("stride:",stride,imgsz)
     # stride, names, pt, jit, onnx, engine = model.stride, model.names, model.pt, model.jit, model.onnx, model.engine
-    clsnum = len(names)
+    segclsnum = segclsnum
     colorlist = []
-    for i in range(clsnum):
+    for i in range(segclsnum):
         colorlist.append([random.randint(0,255),random.randint(0,255),random.randint(0,255)])
     colorsmap  = np.array(colorlist, dtype=np.uint8)
     
@@ -278,7 +280,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'runs/train/exp86/weights/last.pt', help='model path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'runs/train/exp/weights/last.pt', help='model path(s)')
     parser.add_argument('--source', type=str, default='VOC/seg/images/val', help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[512], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='confidence threshold')
@@ -303,6 +305,7 @@ def parse_opt():
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
+    parser.add_argument('--segclsnum', type=int, default=6, help='num cls of seg')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(FILE.stem, opt)

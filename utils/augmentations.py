@@ -312,10 +312,10 @@ def random_segmentation_perspective(im, targets, degrees=10, translate=.1, scale
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         if perspective:
             im = cv2.warpPerspective(im, M, dsize=(width, height), borderValue=(114, 114, 114))
-            targets = cv2.warpPerspective(targets, M, dsize=(width, height), borderValue=(0, 0))
+            targets = cv2.warpPerspective(targets, M, dsize=(width, height), flags=cv2.INTER_NEAREST, borderValue=(0, 0))
         else:  # affine
             im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
-            targets = cv2.warpAffine(targets, M[:2], dsize=(width, height), borderValue=(0, 0))
+            targets = cv2.warpAffine(targets, M[:2], dsize=(width, height), flags=cv2.INTER_NEAREST, borderValue=(0, 0))
 
     # Visualize
     # import matplotlib.pyplot as plt

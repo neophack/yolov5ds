@@ -121,7 +121,7 @@ def create_dataloader(path, clsnum, imgsz, batch_size, stride, single_cls=False,
                   shuffle=shuffle and sampler is None,
                   num_workers=nw,
                   sampler=sampler,
-                  pin_memory=True,
+                  pin_memory=False,
                   collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn), dataset, dataset.counter_per_cls
 
 
@@ -154,7 +154,7 @@ def create_road_seg_dataloader(path, clsnum, imgsz, batch_size, stride, single_c
                   shuffle=shuffle and sampler is None,
                   num_workers=nw,
                   sampler=sampler,
-                  pin_memory=True,
+                  pin_memory=False,
                   ), dataset
 
 
@@ -787,6 +787,7 @@ class LoadSegImagesAndLabels(Dataset):
         labelcounter = Counter(labelcounter)
         labelcounter = dict(labelcounter)
         segcls = sorted(list(labelcounter.keys()))
+        print("stastic segcls",segcls)
         seg_weights = [labelcounter[i] for i in segcls]
         seg_weights_balance = [math.pow(i, 1 / 5) for i in seg_weights]
         self.seg_weights = [max(seg_weights_balance) / i for i in seg_weights_balance]
@@ -945,7 +946,7 @@ def load_segimagelabel(self, i):
         im = cv2.resize(im, (int(w0 * r), int(h0 * r)),
                         interpolation=cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR)
         label = cv2.resize(label, (int(w0 * r), int(h0 * r)),
-                           interpolation=cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR)
+                           interpolation=cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_NEAREST)
     return im, label, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
 
 

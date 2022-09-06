@@ -54,7 +54,7 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import Conv
 from models.experimental import attempt_load
-from models.yolo import Detect
+from models.yolodhs import Detect
 from utils.activations import SiLU
 from utils.datasets import LoadImages
 from utils.general import (LOGGER, check_dataset, check_img_size, check_requirements, colorstr, file_size, print_args,
@@ -358,8 +358,9 @@ def run(data=ROOT / 'data/coco128.yaml',  # 'dataset.yaml path'
             if isinstance(m.act, nn.SiLU):
                 m.act = SiLU()
         elif isinstance(m, Detect):
-            m.inplace = inplace
+            m.inplace = False
             m.onnx_dynamic = dynamic
+            m.export = True
             # m.forward = m.forward_export  # assign forward (optional)
 
     for _ in range(2):
@@ -410,7 +411,7 @@ def parse_opt():
     parser.add_argument('--int8', action='store_true', help='CoreML/TF INT8 quantization')
     parser.add_argument('--dynamic', action='store_true', help='ONNX/TF: dynamic axes')
     parser.add_argument('--simplify', action='store_true', help='ONNX: simplify model')
-    parser.add_argument('--opset', type=int, default=13, help='ONNX: opset version')
+    parser.add_argument('--opset', type=int, default=11, help='ONNX: opset version')
     parser.add_argument('--verbose', action='store_true', help='TensorRT: verbose log')
     parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--topk-per-class', type=int, default=100, help='TF.js NMS: topk per class to keep')
