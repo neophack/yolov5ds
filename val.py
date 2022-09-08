@@ -125,6 +125,7 @@ def run(data,
         # Load model
         model = DetectMultiBackend(weights, device=device, dnn=dnn)
         stride, pt, engine = model.stride, model.pt, model.engine
+        
         imgsz = check_img_size(imgsz, s=stride)  # check image size
         half &= (pt or engine) and device.type != 'cpu'  # half precision only supported by PyTorch on CUDA
         if pt:
@@ -152,6 +153,7 @@ def run(data,
         model.warmup(imgsz=(1, 3, imgsz, imgsz), half=half)  # warmup
         pad = 0.0 if task == 'speed' else 0.5
         task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
+        
         dataloader = create_dataloader(data[task], imgsz, batch_size, stride, single_cls, pad=pad, rect=pt,
                                        prefix=colorstr(f'{task}: '))[0]
 
@@ -195,7 +197,9 @@ def run(data,
         targets[:, 2:6] *= torch.tensor((width, height, width, height), device=device)  # to pixels
         lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
         t3 = time_sync()
+        # print((out*100).int()[0,0,...,4:])
         out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls)
+        # print(out[0])
         dt[2] += time_sync() - t3
 
         # Metrics
@@ -227,6 +231,7 @@ def run(data,
                     confusion_matrix.process_batch(predn, labelsn)
             else:
                 correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool)
+            # print(pred,tcls)
             stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))  # (correct, conf, pcls, tcls)
 
             # Save/log
@@ -312,8 +317,8 @@ def run(data,
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
-    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolov5s.pt', help='model.pt path(s)')
+    parser.add_argument('--data', type=str, default=ROOT / 'data/ps.yaml', help='dataset.yaml path')
+    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'runs/train/exp60/weights/last.pt', help='model.pt path(s)')
     parser.add_argument('--batch-size', type=int, default=32, help='batch size')
     parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.001, help='confidence threshold')

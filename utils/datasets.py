@@ -441,6 +441,7 @@ class LoadImagesAndLabels(Dataset):
     def __init__(self, path, cls_num=80, img_size=640, batch_size=16, augment=False, hyp=None, rect=False,
                  image_weights=False,
                  cache_images=False, single_cls=False, stride=32, pad=0.0, prefix=''):
+        stride=32
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -558,7 +559,7 @@ class LoadImagesAndLabels(Dataset):
                     shapes[i] = [maxi, 1]
                 elif mini > 1:
                     shapes[i] = [1, 1 / mini]
-
+            print("stride",stride)
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride
 
         # Cache images into memory for faster training (WARNING: large datasets may exceed system RAM)
@@ -682,7 +683,7 @@ class LoadImagesAndLabels(Dataset):
         if self.augment:
             # Albumentations
             # print(labels)
-            img, _ = self.albumentations(img, np.array([[0,0.5,0.5,0.1,0.1],[1,0.6,0.5,0.1,0.1]]))
+            img, _ = self.albumentations(img, np.array([[0,0.5,0.5,0.1,0.1]]))
             nl = len(labels)  # update after albumentations
 
             # HSV color-space

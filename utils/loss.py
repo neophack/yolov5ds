@@ -99,7 +99,7 @@ class ComputeLoss:
         h = model.hyp  # hyperparameters
 
         # Define criteria
-        BCEcls = nn.BCEWithLogitsLoss(reduction= 'none', pos_weight=torch.tensor([h['cls_pw']], device=device))
+        BCEcls = nn.BCEWithLogitsLoss( pos_weight=torch.tensor([h['cls_pw']], device=device))
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
         BCEdire = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
 
@@ -134,15 +134,25 @@ class ComputeLoss:
             n = b.shape[0]  # number of targets
             # print("n:",n)
             if n:
-                ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+                pxy, pwh, _, pcls, pdire = pi[b, a, gj, gi].split((2, 2, 1, self.nc,2), 1)  # target-subset of predictions
 
                 # Regression
-                pxy = ps[:, :2].sigmoid() * 2 - 0.5
-                pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
-                pdire = ps[:, 4:6].sigmoid()
+                pxy = pxy.sigmoid() * 2 - 0.5
+                pwh = (pwh.sigmoid() * 2) ** 2 * anchors[i]
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
-                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
+                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True).squeeze()  # iou(prediction, target)
                 lbox += (1.0 - iou).mean()  # iou loss
+
+                # ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+                # print(ps.shape)
+                # # Regression
+                # pxy = ps[:, :2].sigmoid() * 2 - 0.5
+                # pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
+                # pdire = ps[:, -2:].sigmoid()
+                # pcls = ps[:, 5:-2].sigmoid()
+                # pbox = torch.cat((pxy, pwh), 1)  # predicted box
+                # iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
+                # lbox += (1.0 - iou).mean()  # iou loss
 
                 # Objectness
                 score_iou = iou.detach().clamp(0).type(tobj.dtype)
@@ -153,42 +163,11 @@ class ComputeLoss:
 
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
-                    t = torch.full_like(ps[:, 5:], self.cn, device=device)  # targets
-                    # print("tcls:",len(tcls),tcls[i].shape,set(tcls[i].detach().cpu().numpy().tolist()))
+                    t = torch.full_like(pcls, self.cn, device=device)  # targets
                     t[range(n), tcls[i]] = self.cp
-                    # print("target : ",tcls[i].shape, tcls[i])
-                    # cls_loss_percls = self.BCEcls(ps[:, 5:], t).mean(0)
-                    # self.cls_loss_mean += cls_loss_percls
-                    # maxloss = self.cls_loss_mean.max()
-                    # cls_weights = maxloss/self.cls_loss_mean
-                    # cls_weights = cls_weights.detach().cpu().numpy().tolist()
-                    # gamma = random.randint(3, 20)
-                    # cls_weights = [math.pow(it, 1 / gamma) for it in cls_weights]
-                    # lcls += torch.mean(self.BCEcls(ps[:, 5:], t)) # BCE
-                    # self.loss_perlayer[i] += torch.mean(self.BCEcls(ps[:, 5:], t))
-
-                    # # print(ps[:, 5:].shape, t.shape, self.BCEcls(ps[:, 5:], t).shape)
-                    # # print("cls_balance:",self.cls_balance)
-                    # # gamma = random.randint(5,20)
-                    # gamma2 = random.randint(3, 10)
-                    # 
-                    count_balance = [math.pow(it, 1 / 5) for it in self.cls_balance]
-                    # count_balance2 = [math.pow(it, 1 / gamma2) for it in self.cls_balance]
-                    # max_num = max(count_balance)
-                    cls_weights = [max(count_balance)/it for it in count_balance]
-                    # max_num2 = max(count_balance2)
-                    # cls_weights2 = [max_num2 / it for it in count_balance2]
-
-                    # anchor_t = tcls[i].detach().cpu().numpy
-                    # anchor_w = [cls_weights[tcls[i][s]] for s in range(n)]
-                    # print("anchor_w:",anchor_w)
-                    # print("cls weights:",cls_weights)
-                    # print("self.BCEcls(ps[:, 5:], t):",self.BCEcls(ps[:, 5:], t).shape,self.BCEcls(ps[:, 5:], t))
-                    # anchor_w = torch.Tensor(anchor_w).cuda().reshape(n,-1)
-                    # print("anchor_w:",anchor_w.shape)
-                    lcls += torch.mean(self.BCEcls(ps[:, 5:], t)*torch.Tensor(cls_weights).cuda()) # BCE
-                    # print(anchor_w.shape,torch.Tensor(cls_weights2).cuda().shape)
-                    # lcls += self.BCEcls(ps[:, 5:], t) #* torch.Tensor(cls_weights2).cuda() )  # BCE
+                    # print(pcls.shape,t.shape,lcls.shape)
+                    lcls += self.BCEcls(pcls, t)  # BCE
+                    # print(pcls, t)
 
                     t2 = torch.full_like(pdire, self.cn, device=device)  # targets
                     t2[range(n), gdire[i]] = self.cp
@@ -246,7 +225,7 @@ class ComputeLoss:
             if nt:
                 # Matches
                 r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
-                j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
+                j = torch.max(r, 1 / r).max(2)[0] >0 #< self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
                 t = t[j]  # filter
 

@@ -37,7 +37,7 @@ except ImportError:
 class DecoupledHead(nn.Module):
     def __init__(self, ch=256, nc=80, width=1.0, anchors=()):
         super().__init__()
-        self.nc = nc  # number of classes
+        self.nc = nc+2  # number of classes
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
         self.merge = Conv(ch, 256 * width, 1, 1)
@@ -72,7 +72,7 @@ class Detect(nn.Module):
         super().__init__()
         self.n_anchors = 1
         self.nc = nc  # number of classes
-        self.no = nc + 5  # number of outputs per anchor
+        self.no = nc + 7  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
         self.grid = [torch.zeros(1)] * self.nl  # init grid
@@ -80,19 +80,22 @@ class Detect(nn.Module):
         self.register_buffer('anchors', torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
         # self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.m = nn.ModuleList(DecoupledHead(x,nc,1,anchors) for x in ch)
+        self.m2 = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
 
         self.inplace = inplace  # use in-place ops (e.g. slice assignment)
 
     def forward(self, x):
         z = []  # inference output
         for i in range(self.nl):
-            x[i] = self.m[i](x[i])  # conv
+            x[i] = self.m2[i](x[i])  # conv
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             bs=int(bs)
             nx=int(nx)
             ny=int(ny)
+            # print(x[i].shape,nx,ny,bs)
             y = x[i].view(bs*self.na, self.no, ny, nx).permute(0, 2, 3, 1).contiguous()
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0,1, 3, 4, 2).contiguous() 
+            
 
             if not self.training:  # inference
                 if self.onnx_dynamic or self.grid[i].shape[:3] != x[i].shape[:3]:
@@ -104,7 +107,7 @@ class Detect(nn.Module):
                     y[..., 0:2] = (y[..., 0:2] * 2  + self.grid[i]) * self.stride[i]  # xy
                     y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
                 else:  # for YOLOv5 on AWS Inferentia https://github.com/ultralytics/yolov5/pull/2953
-                    xy, wh, conf = y.split((2, 2, self.nc + 1), 4)  # y.tensor_split((2, 4, 5), 4)  # torch 1.8.0
+                    xy, wh, conf = y.split((2, 2, self.nc + 3), 4)  # y.tensor_split((2, 4, 5), 4)  # torch 1.8.0
                     xy = (xy * 2 + self.grid[i]) * self.stride[i]  # xy
                     wh = (wh * 2) ** 2 * self.anchor_grid[i]  # wh
                     y = torch.cat((xy, wh, conf), 4)
@@ -322,7 +325,7 @@ def parse_model(d, sd,ch):  # model_dict, segmentation dict, input_channels(3)
     LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    no = na * (nc + 7)  # number of outputs = anchors * (classes + 5)
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head'] + sd['SegHead']):  # from, number, module, args

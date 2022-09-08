@@ -22,7 +22,7 @@ class Albumentations:
         try:
             import albumentations as A
             check_version(A.__version__, '1.0.3', hard=True)  # version requirement
-
+        
             self.transform = A.Compose([
                 # A.CoarseDropout(max_holes=8, max_height=8, max_width=8, min_holes=None, min_height=None, min_width=None, fill_value=0, always_apply=False, p=0.01),
                 # A.OpticalDistortion(distort_limit=0.05, shift_limit=0.05, interpolation=1, border_mode=4, value=None, mask_value=None, always_apply=False, p=0.01),
@@ -301,7 +301,7 @@ def random_perspective(im, targets=(), segments=(), degrees=10, translate=.1, sc
             # print(new[:, 4])
         targets = targets[validi]
         targets[:, 1:5] = new[validi][:, 0:4]
-
+    
         dire=new[validi][:, 4]
 
     return im, targets, dire

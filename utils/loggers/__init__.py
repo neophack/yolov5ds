@@ -111,7 +111,7 @@ class Loggers():
         # Callback runs at the end of each fit (train+val) epoch
         x = {k: v for k, v in zip(self.keys, vals)}  # dict
         if self.csv:
-            file = self.save_dir / 'results.csv'
+            file = self.save_dir / 'det_results.csv'
             n = len(x) + 1  # number of cols
             s = '' if file.exists() else (('%20s,' * n % tuple(['epoch'] + self.keys)).rstrip(',') + '\n')  # add header
             with open(file, 'a') as f:
@@ -124,6 +124,24 @@ class Loggers():
         if self.wandb:
             self.wandb.log(x)
             self.wandb.end_epoch(best_result=best_fitness == fi)
+
+    def on_fit_epoch_end_seg(self, vals, epoch):
+        # Callback runs at the end of each fit (train+val) epoch
+        keys=["seg/ave_loss","seg/mean_IOU"]
+        x = {k: v for k, v in zip(keys, vals)} 
+        if self.csv:
+            file = self.save_dir / 'seg_results.csv'
+            n = len(x) + 1  # number of cols
+            s = '' if file.exists() else (('%20s,' * n % tuple(['epoch'] + keys)).rstrip(',') + '\n')  # add header
+            with open(file, 'a') as f:
+                f.write(s + ('%20.5g,' * n % tuple([epoch] + vals)).rstrip(',') + '\n')
+        if self.tb:
+            for k, v in x.items():
+                self.tb.add_scalar(k, v, epoch)
+        if self.wandb:
+            self.wandb.log(x)
+            self.wandb.end_epoch(best_result=True)
+
 
     def on_model_save(self, last, epoch, final_epoch, best_fitness, fi):
         # Callback runs on model save event

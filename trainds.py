@@ -399,6 +399,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             # mIOU
             if not noval or final_epoch:  # Calculate mAP
                 ave_loss, mean_IoU, IoU_array = segval.validate(roadseg_val_loader, model, segnc,SegLoss )
+                callbacks.run('on_fit_epoch_end_seg', [ave_loss,mean_IoU], epoch)
 
         # Scheduler
         lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
